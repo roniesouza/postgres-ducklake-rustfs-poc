@@ -1,0 +1,37 @@
+services:
+  source_postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${SOURCE_POSTGRES_DB}
+      POSTGRES_USER: ${SOURCE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${SOURCE_POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${SOURCE_POSTGRES_PORT}:5432"
+    volumes:
+      - source_postgres_data:/var/lib/postgresql/data
+      - ./docker/source/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  lake_catalog_postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${LAKE_CATALOG_POSTGRES_DB}
+      POSTGRES_USER: ${LAKE_CATALOG_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${LAKE_CATALOG_POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${LAKE_CATALOG_POSTGRES_PORT}:5432"
+    volumes:
+      - lake_catalog_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  source_postgres_data:
+  lake_catalog_postgres_data:
