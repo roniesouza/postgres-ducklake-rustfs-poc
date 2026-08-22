@@ -196,6 +196,9 @@ Todos os commits devem seguir
 Usar tipos como `feat`, `fix`, `docs`, `refactor`, `test` e `chore`. Manter a
 descrição curta, objetiva e coerente com a alteração.
 
+Escrever a descrição em português. Os tipos definidos pelo Conventional Commits
+devem permanecer em inglês.
+
 ## Validação proporcional
 
 Aplicar somente as validações relacionadas à alteração:
