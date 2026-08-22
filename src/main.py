@@ -63,7 +63,10 @@ def load_env_file(path: Path) -> None:
     if not path.exists():
         return
 
-    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        1,
+    ):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -122,7 +125,10 @@ def load_settings() -> Settings:
 
 
 def sql_string(value: str | Path) -> str:
-    """Escapa um literal SQL; usado somente com configuracao local confiavel."""
+    """Escapa um literal SQL.
+
+    Usado somente com configuracao local confiavel.
+    """
     return "'" + str(value).replace("'", "''") + "'"
 
 
@@ -174,8 +180,16 @@ def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
             connection.execute(f"INSTALL {extension}")
             connection.execute(f"LOAD {extension}")
 
-        create_postgres_secret(connection, "source_postgres_secret", settings.source)
-        create_postgres_secret(connection, "lake_catalog_postgres_secret", settings.catalog)
+        create_postgres_secret(
+            connection,
+            "source_postgres_secret",
+            settings.source,
+        )
+        create_postgres_secret(
+            connection,
+            "lake_catalog_postgres_secret",
+            settings.catalog,
+        )
         create_s3_secret(connection, settings.object_storage)
         connection.execute(
             f"""
@@ -191,7 +205,11 @@ def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
             """
         )
 
-        LOGGER.info("Conectando ao PostgreSQL SOURCE em %s:%s", settings.source.host, settings.source.port)
+        LOGGER.info(
+            "Conectando ao PostgreSQL SOURCE em %s:%s",
+            settings.source.host,
+            settings.source.port,
+        )
         connection.execute(
             """
             ATTACH '' AS source (
@@ -207,12 +225,19 @@ def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
             settings.object_storage.endpoint,
             settings.object_storage.bucket,
         )
-        LOGGER.info("Conectando ao catalogo DuckLake em %s:%s", settings.catalog.host, settings.catalog.port)
+        LOGGER.info(
+            "Conectando ao catalogo DuckLake em %s:%s",
+            settings.catalog.host,
+            settings.catalog.port,
+        )
         connection.execute(
             "ATTACH 'ducklake:lake_ducklake_secret' AS lake "
             "(DATA_INLINING_ROW_LIMIT 0)"
         )
-        LOGGER.info("DuckLake anexado; DATA_PATH=%s", settings.object_storage.data_path)
+        LOGGER.info(
+            "DuckLake anexado; DATA_PATH=%s",
+            settings.object_storage.data_path,
+        )
         return connection
     except Exception:
         connection.close()
@@ -257,7 +282,9 @@ def validate_counts(connection: duckdb.DuckDBPyConnection) -> None:
             lake_count,
         )
         if source_count != lake_count:
-            mismatches.append(f"{table}: SOURCE={source_count}, DuckLake={lake_count}")
+            mismatches.append(
+                f"{table}: SOURCE={source_count}, DuckLake={lake_count}"
+            )
 
     if mismatches:
         raise RuntimeError("Contagens divergentes: " + "; ".join(mismatches))

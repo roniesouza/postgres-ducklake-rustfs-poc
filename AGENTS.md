@@ -1,8 +1,8 @@
 # AGENTS.md
 
-## Objetivo
+## Objetivo e escopo
 
-Criar um projeto simples demonstrando um pipeline local:
+Manter uma PoC simples, local e replicável do seguinte pipeline:
 
 ```text
 PostgreSQL SOURCE (Docker)
@@ -17,20 +17,21 @@ metadados    (Docker)
               Parquet
 ```
 
-Não utilizar serviços de nuvem.
+O projeto deve separar claramente compute, catálogo de metadados e
+armazenamento de dados. Não utilizar cloud, API, interface web, orquestrador ou
+tecnologias adicionais sem necessidade.
 
-## Tecnologias
+## Tecnologias e estrutura
 
-- Python
-- `uv` para gerenciamento do projeto e dependências
-- DuckDB
-- DuckLake
-- PostgreSQL
-- RustFS
-- Docker Compose
-- Parquet em object storage S3-compatible
+- Python 3.11 ou superior;
+- `uv` para projeto, dependências e execução;
+- DuckDB e DuckLake;
+- PostgreSQL;
+- RustFS;
+- Docker Compose;
+- Parquet em object storage S3-compatible.
 
-## Estrutura esperada
+Estrutura esperada:
 
 ```text
 .
@@ -43,215 +44,210 @@ Não utilizar serviços de nuvem.
 ├── docker/
 │   └── source/
 │       └── init.sql
-├── src/
-│   └── main.py
+└── src/
+    └── main.py
 ```
 
-## PostgreSQL
+## Componentes
 
-Criar dois serviços no `docker-compose.yml`:
+### PostgreSQL SOURCE
 
-### `source_postgres`
+O serviço `source_postgres` representa o banco operacional:
 
-Banco operacional de origem.
+- database `source` na porta host `5432`;
+- volume Docker persistente;
+- inicialização automática por `docker/source/init.sql`;
+- exatamente cinco tabelas relacionadas: `clientes`, `categorias`, `produtos`,
+  `pedidos` e `itens_pedido`;
+- poucos dados amostrais coerentes, suficientes para joins e cargas.
 
-- database: `source`
-- porta host: `5432`
-- executar automaticamente `docker/source/init.sql`
+### Catálogo DuckLake
 
-Criar e popular aproximadamente 5 tabelas relacionadas:
+O serviço `lake_catalog_postgres` mantém exclusivamente metadados gerenciados
+pelo DuckLake:
 
-- `clientes`
-- `categorias`
-- `produtos`
-- `pedidos`
-- `itens_pedido`
+- database `lake_catalog` na porta host `5433`;
+- volume Docker persistente;
+- nenhum dado analítico armazenado nesse PostgreSQL.
 
-Adicionar poucos dados amostrais coerentes, suficientes para testar joins e cargas.
+### RustFS
 
-### `lake_catalog_postgres`
+O serviço `rustfs` armazena os arquivos Parquet:
 
-Catálogo de metadados do DuckLake.
-
-- database: `lake_catalog`
-- porta host: `5433`
-- não armazenar os dados analíticos neste banco
-
-Usar volumes Docker persistentes para ambos os serviços.
-
-## RustFS
-
-Criar um serviço `rustfs` no `docker-compose.yml`:
-
-- imagem Docker oficial com versão fixada;
+- imagem oficial com versão pré-release fixada;
 - API S3 na porta host `9000`;
 - console na porta host `9001`;
-- credenciais configuradas por variáveis de ambiente;
-- volume Docker persistente para os objetos;
+- credenciais por variáveis de ambiente;
+- volume Docker persistente;
 - bucket criado manualmente pelo usuário no console.
 
-O RustFS deve armazenar os arquivos Parquet. Não adicionar AWS CLI, `boto3`,
-MinIO Client ou outra dependência apenas para administrar o bucket.
+Não adicionar AWS CLI, `boto3`, MinIO Client ou dependência semelhante apenas
+para administrar o bucket.
+
+## Configuração e segurança
+
+- manter credenciais, portas, região e bucket em variáveis de ambiente;
+- manter somente valores locais de desenvolvimento em `.env.example`;
+- não versionar `.env`, credenciais, bancos locais ou artefatos de execução;
+- não manter senhas fixas no código nem registrá-las nos logs;
+- usar secrets temporários no DuckDB;
+- não usar tags Docker `latest`;
+- fixar versões exatas para imagens pré-release e ao menos a versão principal
+  para imagens estáveis, conforme a necessidade de reprodutibilidade da PoC.
 
 ## Python
 
-Inicializar e gerenciar exclusivamente com `uv`.
+Gerenciar o projeto exclusivamente com `uv`. Não utilizar `pip`, Poetry ou
+Conda. A única dependência de runtime necessária é `duckdb`.
 
-Dependência principal:
-
-```bash
-uv add duckdb
-```
-
-Executar o projeto com:
+Executar com:
 
 ```bash
 uv run python src/main.py
 ```
 
-Não utilizar `pip`, Poetry ou Conda.
+Convenções:
+
+- seguir a [PEP 8](https://peps.python.org/pep-0008/), priorizando legibilidade;
+- usar `snake_case` para funções e variáveis;
+- usar `PascalCase` para classes;
+- usar nomes em maiúsculas para constantes;
+- adicionar type hints em novas funções e estruturas;
+- manter funções pequenas e com responsabilidade clara;
+- priorizar a biblioteca padrão antes de adicionar dependências;
+- não adicionar formatadores ou linters sem necessidade explícita.
 
 ## Pipeline
 
 O `src/main.py` deve:
 
-1. Criar uma conexão DuckDB local ou em memória.
-2. Instalar/carregar as extensões `postgres`, `httpfs` e `ducklake`.
-3. Anexar o PostgreSQL SOURCE como somente leitura.
-4. Anexar um DuckLake chamado `lake`.
-5. Usar o PostgreSQL `lake_catalog_postgres` como catálogo do DuckLake.
-6. Configurar um secret S3 temporário apontando para o RustFS.
-7. Definir o `DATA_PATH` como `s3://<bucket>/`.
-8. Configurar `DATA_INLINING_ROW_LIMIT 0` para manter os dados em Parquet no RustFS.
-9. Criar no DuckLake uma tabela correspondente para cada tabela do SOURCE.
-10. Fazer uma carga completa dos dados amostrais.
-11. Consultar as tabelas carregadas e imprimir uma validação simples com quantidade de registros.
-12. A execução deve ser idempotente: executar `uv run python src/main.py` várias vezes não deve gerar erro nem duplicar dados.
+1. criar uma conexão DuckDB em memória;
+2. instalar e carregar as extensões `postgres`, `httpfs` e `ducklake`;
+3. anexar o PostgreSQL SOURCE como somente leitura;
+4. configurar um secret S3 temporário para o RustFS;
+5. anexar um DuckLake chamado `lake` usando o PostgreSQL de catálogo;
+6. definir `DATA_PATH` como `s3://<bucket>/`;
+7. usar `DATA_INLINING_ROW_LIMIT 0` para manter os dados em Parquet no RustFS;
+8. recriar no DuckLake as cinco tabelas correspondentes ao SOURCE;
+9. executar a carga completa em uma transação;
+10. validar as quantidades SOURCE × DuckLake antes do `COMMIT`;
+11. executar `ROLLBACK` e terminar com erro se a carga ou validação falhar;
+12. concluir sem duplicar registros quando executado repetidamente.
 
-Fluxo esperado:
-
-```text
-source.clientes
-source.categorias
-source.produtos
-source.pedidos
-source.itens_pedido
-        ↓
-      DuckDB
-        ↓
-      DuckLake
-        ↓
-RustFS / s3://<bucket>/.../*.parquet
-```
-
-O PostgreSQL `lake_catalog` deve conter apenas os metadados gerenciados pelo DuckLake.
+A validação por contagem é intencionalmente simples para esta PoC. O README
+deve explicar seu objetivo e as validações adicionais esperadas em produção.
 
 ## Logs
 
-Exibir no console o progresso da execução utilizando o módulo `logging`
-da biblioteca padrão do Python.
+Usar somente o módulo `logging` da biblioteca padrão. Os logs devem ser simples
+e indicar, no mínimo:
 
-Os logs devem indicar, no mínimo:
-
-- início do pipeline;
-- conexão com SOURCE;
-- conexão com DuckLake;
-- conexão com RustFS;
-- tabela sendo carregada;
-- quantidade de registros carregados;
+- início e conclusão do pipeline;
+- conexão com SOURCE, DuckLake e RustFS;
+- tabela sendo carregada e quantidade de registros;
 - validação SOURCE × DuckLake;
-- conclusão do pipeline;
-- erros, quando ocorrerem.
+- erros.
 
-Manter os logs simples e legíveis. Não adicionar bibliotecas externas
-de logging ou observabilidade.
+Não adicionar bibliotecas externas de logging ou observabilidade.
 
-## Configuração
+## Snapshot e Time Travel
 
-Credenciais, portas, região e bucket devem ficar em variáveis de ambiente.
+O pipeline principal deve terminar após a carga e validação, sem criar
+alterações extras apenas para demonstrar snapshots.
 
-Criar `.env.example` com valores locais de desenvolvimento.
+O README deve conter uma demonstração manual, compatível com a versão instalada
+do DuckLake, que permita:
 
-O código não deve conter senhas fixas.
-
-## Demonstração de Snapshot / Time Travel
-
-O pipeline principal deve terminar após a carga e validação dos dados.
-
-Não criar automaticamente alterações adicionais apenas para demonstrar snapshots.
-
-O `README.md` deve conter uma seção curta chamada **Demonstração de Time Travel**, para ser executada manualmente pelo usuário após a carga inicial.
-
-A demonstração deve orientar o usuário a:
-
-1. consultar o estado atual de uma tabela do DuckLake;
-2. alterar ou inserir um registro no DuckLake;
-3. listar os snapshots existentes;
+1. consultar o estado atual de uma tabela;
+2. alterar ou inserir um registro;
+3. listar os snapshots;
 4. consultar novamente o estado atual;
-5. consultar o snapshot anterior usando Time Travel;
+5. consultar o snapshot anterior com Time Travel;
 6. comparar os resultados e confirmar o versionamento.
 
-Usar comandos compatíveis com a versão do DuckLake instalada no projeto.
+A demonstração pode alterar o lake. Uma nova execução do pipeline deve
+restaurar deterministicamente o conteúdo do SOURCE.
 
-A finalidade dessa etapa é demonstrar que o projeto utiliza recursos do DuckLake além da simples gravação de arquivos Parquet.
+## Documentação
 
-## Idempotência
+O README deve permitir executar todo o projeto a partir da raiz e documentar:
 
-O projeto deve poder ser executado várias vezes com:
+- preparação do `.env`;
+- inicialização e encerramento dos containers;
+- criação manual do bucket pelo console RustFS;
+- instalação das dependências e execução do pipeline;
+- acesso genérico somente leitura ao DuckLake;
+- validação, idempotência, Time Travel e limitações da PoC;
+- limpeza completa com `docker compose down -v`.
 
-```bash
-uv run python src/main.py
+Alterações em arquitetura, ambiente, portas, dependências ou comandos devem
+atualizar, quando aplicável, `README.md`, `.env.example`, `docker-compose.yml`,
+`pyproject.toml`, `uv.lock` e este arquivo.
+
+## Commits
+
+Todos os commits devem seguir
+[Conventional Commits](https://www.conventionalcommits.org/):
+
+```text
+<tipo>(<escopo opcional>): <descrição>
 ```
 
-sem:
+Usar tipos como `feat`, `fix`, `docs`, `refactor`, `test` e `chore`. Manter a
+descrição curta, objetiva e coerente com a alteração.
 
-- duplicar registros;
-- falhar porque tabelas já existem;
-- exigir limpeza manual entre execuções.
+## Validação proporcional
 
-Para esta PoC, priorizar uma solução simples e determinística. É aceitável recriar as tabelas do DuckLake antes da carga completa.
+Aplicar somente as validações relacionadas à alteração:
 
-A demonstração manual de Time Travel descrita no README é independente dessa característica e pode alterar o estado do Lake após a carga inicial.
+- sempre executar `git diff --check`;
+- executar `docker compose config --quiet` ao alterar Compose ou ambiente;
+- executar `uv sync --locked` ao alterar dependências ou lockfile;
+- executar `uv run python src/main.py` ao alterar código, configuração ou
+  arquitetura do pipeline;
+- repetir o pipeline ao alterar carga ou idempotência;
+- confirmar a saúde dos containers em validações funcionais.
 
-## Docker
+Alterações somente documentais não exigem executar o pipeline.
 
-O projeto deve funcionar com:
+## Execução
+
+Fluxo principal:
 
 ```bash
-docker compose up -d
+docker compose up -d --wait
+# criar manualmente o bucket no console RustFS
 uv sync
 uv run python src/main.py
 ```
 
-O bucket configurado deve ser criado manualmente no console RustFS após subir
-os serviços e antes da primeira execução do pipeline.
-
-Também documentar no `README.md` como encerrar o ambiente:
+Encerrar preservando os volumes:
 
 ```bash
 docker compose down
 ```
 
-e como apagar completamente bancos/volumes para reiniciar o exemplo:
+Reiniciar todo o exemplo, removendo bancos e objetos:
 
 ```bash
 docker compose down -v
 ```
 
-## Critérios de conclusão
+Após remover os volumes, o bucket deve ser criado novamente antes da carga.
 
-O projeto está concluído quando:
+## Definição de pronto
 
-- o progresso da execução é exibido de forma clara no terminal;
-- os dois PostgreSQL e o RustFS sobem via Docker Compose;
-- o SOURCE é criado automaticamente com dados amostrais;
-- o Python conecta ao SOURCE;
-- o DuckLake utiliza o segundo PostgreSQL como catálogo;
-- arquivos Parquet aparecem no bucket RustFS;
-- as 5 tabelas podem ser consultadas através do DuckLake;
-- a quantidade de registros SOURCE × DuckLake é validada;
-- executar o pipeline novamente não duplica dados nem gera erros;
-- o `README.md` contém a demonstração manual de Snapshot / Time Travel;
-- todo o projeto pode ser executado apenas seguindo o `README.md`.
+Uma alteração está concluída quando as validações proporcionais passam e os
+requisitos afetados permanecem atendidos. Para a PoC completa, isso significa:
 
-Priorizar simplicidade, código legível e poucas abstrações. Não implementar cloud, API, interface web, orquestrador ou recursos desnecessários.
+- os dois PostgreSQL e o RustFS sobem saudáveis pelo Docker Compose;
+- o SOURCE é inicializado automaticamente com as cinco tabelas amostrais;
+- o DuckLake usa o segundo PostgreSQL somente como catálogo;
+- os dados ficam em arquivos Parquet no bucket RustFS;
+- as cinco tabelas podem ser consultadas pelo DuckLake;
+- as contagens SOURCE × DuckLake coincidem;
+- uma segunda carga não falha nem duplica registros;
+- falhas durante a carga provocam rollback;
+- o README permite reproduzir o projeto e demonstra Time Travel.
+
+Priorizar sempre simplicidade, legibilidade e poucas abstrações.
