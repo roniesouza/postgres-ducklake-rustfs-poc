@@ -1,4 +1,4 @@
-"""Carga local PostgreSQL SOURCE -> DuckDB -> DuckLake."""
+"""Pipeline local PostgreSQL SOURCE -> DuckLake usando DuckDB e RustFS."""
 
 from __future__ import annotations
 
