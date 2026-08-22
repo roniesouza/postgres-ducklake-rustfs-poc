@@ -34,7 +34,7 @@ O objetivo não é propor uma arquitetura pronta para produção, mas oferecer u
 base prática para experimentar as tecnologias, compreender suas integrações e
 avaliar possibilidades com ferramentas abertas.
 
-## DuckDB e DuckLake
+## DuckDB, DuckLake e RustFS
 
 - **[DuckDB](https://duckdb.org/docs/stable/)** é um banco analítico executado
   dentro do próprio processo da aplicação, sem exigir um servidor separado.
@@ -217,8 +217,10 @@ diretamente:
 
 ```sql
 SELECT * FROM lake.main.clientes;
+SELECT * FROM lake.main.categorias;
 SELECT * FROM lake.main.produtos;
 SELECT * FROM lake.main.pedidos;
+SELECT * FROM lake.main.itens_pedido;
 ```
 
 Os secrets existem somente durante essa sessão DuckDB. `READ_ONLY` mantém o
@@ -234,7 +236,9 @@ e suas extensões.
 ## Demonstração de Time Travel
 
 Faça esta demonstração manual somente depois da carga inicial. Abra o Python
-do projeto na raiz do repositório:
+do projeto na raiz do repositório. O Python é usado porque esta demonstração
+precisa alterar uma tabela para criar um novo snapshot, enquanto o acesso
+genérico documentado anteriormente é intencionalmente somente leitura:
 
 ```bash
 uv run python
