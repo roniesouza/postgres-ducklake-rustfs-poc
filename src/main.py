@@ -26,10 +26,28 @@ class PostgresConfig:
 
 
 @dataclass(frozen=True)
+class ObjectStorageConfig:
+    host: str
+    port: int
+    access_key: str
+    secret_key: str
+    region: str
+    bucket: str
+
+    @property
+    def endpoint(self) -> str:
+        return f"{self.host}:{self.port}"
+
+    @property
+    def data_path(self) -> str:
+        return f"s3://{self.bucket}/"
+
+
+@dataclass(frozen=True)
 class Settings:
     source: PostgresConfig
     catalog: PostgresConfig
-    data_path: Path
+    object_storage: ObjectStorageConfig
 
 
 def configure_logging() -> None:
@@ -66,18 +84,21 @@ def required_env(name: str) -> str:
     return value
 
 
-def postgres_config(prefix: str) -> PostgresConfig:
-    port_name = f"{prefix}_PORT"
+def required_port(name: str) -> int:
     try:
-        port = int(required_env(port_name))
+        return int(required_env(name))
     except ValueError as exc:
         if "obrigatoria ausente" in str(exc):
             raise
-        raise ValueError(f"{port_name} deve ser uma porta numerica") from exc
+        raise ValueError(f"{name} deve ser uma porta numerica") from exc
+
+
+def postgres_config(prefix: str) -> PostgresConfig:
+    port_name = f"{prefix}_PORT"
 
     return PostgresConfig(
         host=required_env(f"{prefix}_HOST"),
-        port=port,
+        port=required_port(port_name),
         database=required_env(f"{prefix}_DB"),
         user=required_env(f"{prefix}_USER"),
         password=required_env(f"{prefix}_PASSWORD"),
@@ -86,12 +107,17 @@ def postgres_config(prefix: str) -> PostgresConfig:
 
 def load_settings() -> Settings:
     load_env_file(PROJECT_ROOT / ".env")
-    data_path = (PROJECT_ROOT / "data" / "ducklake").resolve()
-    data_path.mkdir(parents=True, exist_ok=True)
     return Settings(
         source=postgres_config("SOURCE_POSTGRES"),
         catalog=postgres_config("LAKE_CATALOG_POSTGRES"),
-        data_path=data_path,
+        object_storage=ObjectStorageConfig(
+            host=required_env("RUSTFS_HOST"),
+            port=required_port("RUSTFS_API_PORT"),
+            access_key=required_env("RUSTFS_ACCESS_KEY"),
+            secret_key=required_env("RUSTFS_SECRET_KEY"),
+            region=required_env("RUSTFS_REGION"),
+            bucket=required_env("RUSTFS_BUCKET"),
+        ),
     )
 
 
@@ -107,7 +133,7 @@ def create_postgres_secret(
 ) -> None:
     connection.execute(
         f"""
-        CREATE SECRET {name} (
+        CREATE TEMPORARY SECRET {name} (
             TYPE postgres,
             HOST {sql_string(config.host)},
             PORT {config.port},
@@ -119,22 +145,44 @@ def create_postgres_secret(
     )
 
 
+def create_s3_secret(
+    connection: duckdb.DuckDBPyConnection,
+    config: ObjectStorageConfig,
+) -> None:
+    connection.execute(
+        f"""
+        CREATE TEMPORARY SECRET rustfs_s3_secret (
+            TYPE s3,
+            PROVIDER config,
+            KEY_ID {sql_string(config.access_key)},
+            SECRET {sql_string(config.secret_key)},
+            REGION {sql_string(config.region)},
+            ENDPOINT {sql_string(config.endpoint)},
+            URL_STYLE 'path',
+            USE_SSL false,
+            SCOPE {sql_string(config.data_path)}
+        )
+        """
+    )
+
+
 def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
     """Cria o DuckDB em memoria e anexa SOURCE e DuckLake."""
     connection = duckdb.connect(":memory:")
     try:
-        for extension in ("postgres", "ducklake"):
+        for extension in ("postgres", "httpfs", "ducklake"):
             connection.execute(f"INSTALL {extension}")
             connection.execute(f"LOAD {extension}")
 
         create_postgres_secret(connection, "source_postgres_secret", settings.source)
         create_postgres_secret(connection, "lake_catalog_postgres_secret", settings.catalog)
+        create_s3_secret(connection, settings.object_storage)
         connection.execute(
             f"""
-            CREATE SECRET lake_ducklake_secret (
+            CREATE TEMPORARY SECRET lake_ducklake_secret (
                 TYPE ducklake,
                 METADATA_PATH '',
-                DATA_PATH {sql_string(settings.data_path.as_posix())},
+                DATA_PATH {sql_string(settings.object_storage.data_path)},
                 METADATA_PARAMETERS MAP {{
                     'TYPE': 'postgres',
                     'SECRET': 'lake_catalog_postgres_secret'
@@ -154,12 +202,17 @@ def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
             """
         )
 
+        LOGGER.info(
+            "Conectando ao RustFS em %s; bucket=%s",
+            settings.object_storage.endpoint,
+            settings.object_storage.bucket,
+        )
         LOGGER.info("Conectando ao catalogo DuckLake em %s:%s", settings.catalog.host, settings.catalog.port)
         connection.execute(
             "ATTACH 'ducklake:lake_ducklake_secret' AS lake "
             "(DATA_INLINING_ROW_LIMIT 0)"
         )
-        LOGGER.info("DuckLake anexado; arquivos em %s", settings.data_path)
+        LOGGER.info("DuckLake anexado; DATA_PATH=%s", settings.object_storage.data_path)
         return connection
     except Exception:
         connection.close()

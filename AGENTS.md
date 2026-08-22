@@ -7,13 +7,14 @@ Criar um projeto simples demonstrando um pipeline local:
 ```text
 PostgreSQL SOURCE (Docker)
         ↓
-      DuckDB
+      DuckDB                 compute
         ↓
-     DuckLake
+     DuckLake                lakehouse
       ↙     ↘
-PostgreSQL   Parquet local
-metadados    ./data/ducklake
-(Docker)
+PostgreSQL   RustFS          object storage S3-compatible
+metadados    (Docker)
+                 ↓
+              Parquet
 ```
 
 Não utilizar serviços de nuvem.
@@ -25,8 +26,9 @@ Não utilizar serviços de nuvem.
 - DuckDB
 - DuckLake
 - PostgreSQL
+- RustFS
 - Docker Compose
-- Parquet para armazenamento físico local
+- Parquet em object storage S3-compatible
 
 ## Estrutura esperada
 
@@ -43,8 +45,6 @@ Não utilizar serviços de nuvem.
 │       └── init.sql
 ├── src/
 │   └── main.py
-└── data/
-    └── ducklake/
 ```
 
 ## PostgreSQL
@@ -79,6 +79,20 @@ Catálogo de metadados do DuckLake.
 
 Usar volumes Docker persistentes para ambos os serviços.
 
+## RustFS
+
+Criar um serviço `rustfs` no `docker-compose.yml`:
+
+- imagem Docker oficial com versão fixada;
+- API S3 na porta host `9000`;
+- console na porta host `9001`;
+- credenciais configuradas por variáveis de ambiente;
+- volume Docker persistente para os objetos;
+- bucket criado manualmente pelo usuário no console.
+
+O RustFS deve armazenar os arquivos Parquet. Não adicionar AWS CLI, `boto3`,
+MinIO Client ou outra dependência apenas para administrar o bucket.
+
 ## Python
 
 Inicializar e gerenciar exclusivamente com `uv`.
@@ -102,16 +116,17 @@ Não utilizar `pip`, Poetry ou Conda.
 O `src/main.py` deve:
 
 1. Criar uma conexão DuckDB local ou em memória.
-2. Instalar/carregar as extensões `postgres` e `ducklake`.
+2. Instalar/carregar as extensões `postgres`, `httpfs` e `ducklake`.
 3. Anexar o PostgreSQL SOURCE como somente leitura.
 4. Anexar um DuckLake chamado `lake`.
 5. Usar o PostgreSQL `lake_catalog_postgres` como catálogo do DuckLake.
-6. Definir o `DATA_PATH` para `./data/ducklake`, resolvendo-o para caminho absoluto no Python.
-7. Configurar `DATA_INLINING_ROW_LIMIT 0` para manter os dados nos arquivos locais.
-8. Criar no DuckLake uma tabela correspondente para cada tabela do SOURCE.
-9. Fazer uma carga completa dos dados amostrais.
-10. Consultar as tabelas carregadas e imprimir uma validação simples com quantidade de registros.
-11. A execução deve ser idempotente: executar `uv run python src/main.py` várias vezes não deve gerar erro nem duplicar dados.
+6. Configurar um secret S3 temporário apontando para o RustFS.
+7. Definir o `DATA_PATH` como `s3://<bucket>/`.
+8. Configurar `DATA_INLINING_ROW_LIMIT 0` para manter os dados em Parquet no RustFS.
+9. Criar no DuckLake uma tabela correspondente para cada tabela do SOURCE.
+10. Fazer uma carga completa dos dados amostrais.
+11. Consultar as tabelas carregadas e imprimir uma validação simples com quantidade de registros.
+12. A execução deve ser idempotente: executar `uv run python src/main.py` várias vezes não deve gerar erro nem duplicar dados.
 
 Fluxo esperado:
 
@@ -126,7 +141,7 @@ source.itens_pedido
         ↓
       DuckLake
         ↓
-./data/ducklake/*.parquet
+RustFS / s3://<bucket>/.../*.parquet
 ```
 
 O PostgreSQL `lake_catalog` deve conter apenas os metadados gerenciados pelo DuckLake.
@@ -141,6 +156,7 @@ Os logs devem indicar, no mínimo:
 - início do pipeline;
 - conexão com SOURCE;
 - conexão com DuckLake;
+- conexão com RustFS;
 - tabela sendo carregada;
 - quantidade de registros carregados;
 - validação SOURCE × DuckLake;
@@ -152,7 +168,7 @@ de logging ou observabilidade.
 
 ## Configuração
 
-Credenciais e portas devem ficar em variáveis de ambiente.
+Credenciais, portas, região e bucket devem ficar em variáveis de ambiente.
 
 Criar `.env.example` com valores locais de desenvolvimento.
 
@@ -207,6 +223,9 @@ uv sync
 uv run python src/main.py
 ```
 
+O bucket configurado deve ser criado manualmente no console RustFS após subir
+os serviços e antes da primeira execução do pipeline.
+
 Também documentar no `README.md` como encerrar o ambiente:
 
 ```bash
@@ -224,11 +243,11 @@ docker compose down -v
 O projeto está concluído quando:
 
 - o progresso da execução é exibido de forma clara no terminal;
-- os dois PostgreSQL sobem via Docker Compose;
+- os dois PostgreSQL e o RustFS sobem via Docker Compose;
 - o SOURCE é criado automaticamente com dados amostrais;
 - o Python conecta ao SOURCE;
 - o DuckLake utiliza o segundo PostgreSQL como catálogo;
-- arquivos Parquet aparecem em `./data/ducklake`;
+- arquivos Parquet aparecem no bucket RustFS;
 - as 5 tabelas podem ser consultadas através do DuckLake;
 - a quantidade de registros SOURCE × DuckLake é validada;
 - executar o pipeline novamente não duplica dados nem gera erros;

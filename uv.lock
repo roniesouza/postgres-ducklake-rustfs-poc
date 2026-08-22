@@ -39,7 +39,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ducklake-local-poc"
+name = "postgres-ducklake-rustfs-poc"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

@@ -3,7 +3,3 @@
 __pycache__/
 *.py[cod]
 *.duckdb
-
-# Os arquivos Parquet sao gerados pelo pipeline.
-data/ducklake/*
-!data/ducklake/.gitkeep
