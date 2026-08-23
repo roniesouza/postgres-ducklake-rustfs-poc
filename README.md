@@ -49,6 +49,35 @@ Aqui, o DuckDB é o mecanismo de processamento; o DuckLake organiza e versiona
 as tabelas; o PostgreSQL mantém os metadados; e o RustFS mantém os dados. Essa
 separação permite substituir o storage S3-compatible sem redesenhar o pipeline.
 
+### Versão utilizada do RustFS
+
+Esta PoC fixa a imagem `rustfs/rustfs:1.0.0-rc.3`,
+[publicada em 21 de agosto de 2026](https://github.com/rustfs/rustfs/releases/tag/1.0.0-rc.3).
+O projeto RustFS classifica essa versão como **pre-release**: ela é a terceira
+Release Candidate da futura versão estável `1.0.0`, portanto está em uma etapa
+avançada de estabilização, mas ainda pode receber correções antes do lançamento
+final.
+
+O ciclo de releases normalmente evolui assim:
+
+- **alpha:** desenvolvimento inicial, sujeito a mudanças frequentes;
+- **beta:** funcionalidades principais disponíveis, ainda em estabilização e
+  testes mais amplos;
+- **RC (Release Candidate):** candidata à versão final, concentrada em corrigir
+  problemas que impedem a release estável;
+- **stable:** versão final destinada ao uso regular, com expectativas mais fortes
+  de compatibilidade e suporte.
+
+Alguns projetos também publicam builds `dev`, `nightly` ou `preview` antes ou
+entre essas etapas. Esses nomes são auxiliares; no
+[Versionamento Semântico](https://semver.org/lang/pt-BR/), qualquer sufixo após
+o número da versão identifica uma pre-release e tem precedência inferior à
+versão final correspondente.
+
+A tag móvel `rustfs/rustfs:rc` apontava para o mesmo digest da `1.0.0-rc.3` na
+data desta atualização. A PoC usa a tag numerada porque `rc` poderá apontar para
+outra candidata no futuro, reduzindo a reprodutibilidade.
+
 ## Pré-requisitos
 
 - Docker com Docker Compose;
@@ -307,9 +336,6 @@ produção, a evolução natural seria habilitar
 discos ou um cluster distribuído conforme os
 [modos de implantação do RustFS](https://docs.rustfs.com/en/installation), além
 de proteger e tornar resiliente o PostgreSQL de catálogo.
-
-A imagem foi fixada em `rustfs/rustfs:1.0.0-beta.12` para tornar a demonstração
-replicável enquanto o projeto RustFS ainda publica pré-releases.
 
 ## Licença
 
